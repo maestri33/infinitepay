@@ -211,7 +211,13 @@ def handle_infinitepay_webhook(external_id: str, payload: dict) -> dict:
 
     transaction_nsu = payload.get("transaction_nsu")
     invoice_slug = payload.get("invoice_slug")
-    order_nsu = payload.get("order_nsu") or external_id
+    order_nsu = v.normalize_external_id(str(payload.get("order_nsu") or external_id))
+    if order_nsu != external_id:
+        raise CheckoutError(
+            "order_nsu do webhook diverge do external_id da rota",
+            code=400,
+            extra={"external_id": external_id, "order_nsu": order_nsu},
+        )
 
     if not transaction_nsu or not invoice_slug:
         raise CheckoutError("payload de webhook incompleto (faltam transaction_nsu/invoice_slug)", code=400)

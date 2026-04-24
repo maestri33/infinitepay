@@ -7,7 +7,7 @@ from infinitepay.core import checkout as checkout_core
 router = APIRouter()
 
 
-@router.post("/{external_id}/")
+@router.post("/{external_id}/", summary="Receber webhook InfinitePay", description="Entrada pública chamada pela InfinitePay. Valida order_nsu contra external_id, chama payment_check e enfileira backend_webhook quando pago.")
 async def infinitepay_webhook(external_id: str, request: Request):
     try:
         payload = await request.json()

@@ -15,6 +15,7 @@ from infinitepay.settings import settings
 
 from infinitepay.api.routes import config as config_routes
 from infinitepay.api.routes import checkout as checkout_routes
+from infinitepay.api.routes import test as test_routes
 from infinitepay.api.routes import webhook as webhook_routes
 
 # Paths that work even if public_api_url is not yet validated.
@@ -50,7 +51,11 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="InfinitePay Integration", lifespan=lifespan)
+    app = FastAPI(
+        title="InfinitePay Integration",
+        description="API local para criar checkouts InfinitePay, receber webhooks reais, validar pagamento via payment_check e repassar confirmação para backend_webhook.",
+        lifespan=lifespan,
+    )
 
     @app.middleware("http")
     async def bootstrap_lock(request: Request, call_next):
@@ -74,12 +79,13 @@ def create_app() -> FastAPI:
     async def _validation_err(_req, exc: ValidationError):
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
-    @app.get("/health")
+    @app.get("/health", summary="Health e readiness", description="Retorna ok=true e ready=true quando public_api_url está configurada e validada.")
     def health():
         return {"ok": True, "ready": is_ready()}
 
     app.include_router(config_routes.router, prefix="/config", tags=["config"])
     app.include_router(checkout_routes.router, prefix="/checkout", tags=["checkout"])
+    app.include_router(test_routes.router, prefix="/test", tags=["test"])
     app.include_router(webhook_routes.router, prefix="/webhook", tags=["webhook"])
     return app
 

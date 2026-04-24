@@ -42,3 +42,11 @@ def test_health_and_lock_flow(monkeypatch):
 
         r = c.get("/checkout/p1/")
         assert r.json() == {"external_id": "p1", "is_paid": False, "checkout_url": "https://checkout.ipay/x"}
+
+        r = c.get("/test/redirect/")
+        assert r.status_code == 200
+        assert r.json() == {"ok": True, "kind": "test_redirect"}
+
+        r = c.post("/test/backend-webhook/p1/", json={"paid": True})
+        assert r.status_code == 200
+        assert r.json() == {"ok": True, "external_id": "p1"}

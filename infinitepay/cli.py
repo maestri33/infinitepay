@@ -12,9 +12,9 @@ from infinitepay.core import config as cfg_core
 from infinitepay.core import queue as queue_core
 from infinitepay.db.session import init_db
 
-app = typer.Typer(help="InfinitePay CLI — espelha a API e opera direto no SQLite local.")
-config_app = typer.Typer(help="Gerenciar configuração global (valores default para checkouts).")
-checkout_app = typer.Typer(help="Gerenciar checkouts.")
+app = typer.Typer(help="InfinitePay CLI — cria links reais, consulta status local e opera direto no SQLite configurado por IPAY_DB_PATH.")
+config_app = typer.Typer(help="Gerenciar configuração global: handle, defaults, redirect_url, backend_webhook e public_api_url.")
+checkout_app = typer.Typer(help="Criar, listar e consultar checkouts InfinitePay.")
 app.add_typer(config_app, name="config")
 app.add_typer(checkout_app, name="checkout")
 
@@ -44,11 +44,11 @@ def config_set(
     price: Optional[int] = typer.Option(None, help="em centavos"),
     quantity: Optional[int] = typer.Option(None),
     description: Optional[str] = typer.Option(None),
-    redirect_url: Optional[str] = typer.Option(None),
-    backend_webhook: Optional[str] = typer.Option(None),
-    public_api_url: Optional[str] = typer.Option(None),
+    redirect_url: Optional[str] = typer.Option(None, help="URL para onde o cliente retorna depois do checkout"),
+    backend_webhook: Optional[str] = typer.Option(None, help="URL base do backend que receberá POST /{external_id}/ após pagamento confirmado"),
+    public_api_url: Optional[str] = typer.Option(None, help="URL pública desta API; usada para montar webhook_url da InfinitePay"),
 ):
-    """Atualiza um ou mais campos do /config/."""
+    """Atualiza defaults e, ao mudar public_api_url, gera novo token de validação."""
     data = {k: v for k, v in {
         "handle": handle,
         "price": price,
@@ -85,19 +85,19 @@ def config_force_validate():
 
 @checkout_app.command("create")
 def checkout_create(
-    external_id: str = typer.Option(..., "--external-id"),
+    external_id: str = typer.Option(..., "--external-id", help="ID único do pedido; vira order_nsu na InfinitePay"),
     name: str = typer.Option(..., "--name"),
     email: str = typer.Option(..., "--email"),
     phone: str = typer.Option(..., "--phone", help="E.164 ou BR (10-11 dígitos)"),
     price: Optional[int] = typer.Option(None, "--price", help="centavos; sobrescreve config"),
-    description: Optional[str] = typer.Option(None, "--description"),
-    redirect_url: Optional[str] = typer.Option(None, "--redirect-url"),
-    backend_webhook: Optional[str] = typer.Option(None, "--backend-webhook"),
-    handle: Optional[str] = typer.Option(None, "--handle"),
+    description: Optional[str] = typer.Option(None, "--description", help="Descrição do item quando não usar --items-json"),
+    redirect_url: Optional[str] = typer.Option(None, "--redirect-url", help="Sobrescreve redirect_url da config para este checkout"),
+    backend_webhook: Optional[str] = typer.Option(None, "--backend-webhook", help="Sobrescreve backend_webhook da config para este checkout"),
+    handle: Optional[str] = typer.Option(None, "--handle", help="Sobrescreve handle da config para este checkout"),
     items_json: Optional[str] = typer.Option(None, "--items-json", help="JSON de items[]; sobrescreve price/description"),
     address_json: Optional[str] = typer.Option(None, "--address-json", help="JSON do endereço"),
 ):
-    """Cria um checkout na InfinitePay."""
+    """Cria um link real na InfinitePay e salva o checkout localmente."""
     body: dict = {
         "external_id": external_id,
         "customer": {"name": name, "email": email, "phone_number": phone},
@@ -118,17 +118,19 @@ def checkout_create(
 
 @checkout_app.command("list")
 def checkout_list():
+    """Lista checkouts locais, incluindo pendentes e pagos."""
     _print({"items": checkout_core.list_checkouts()})
 
 
 @checkout_app.command("get")
 def checkout_get(external_id: str):
+    """Mostra checkout por external_id; retorna checkout_url se pendente ou receipt_url se pago."""
     _print(checkout_core.get_checkout(external_id))
 
 
 @app.command("worker")
 def worker():
-    """Roda o worker de retry do backend_webhook (bloqueante)."""
+    """Roda o worker dedicado de retry do backend_webhook (bloqueante). Use apenas se IPAY_RUN_INLINE_WORKER=false."""
     typer.echo("[worker] iniciando loop...")
     queue_core.run_worker_blocking()
 
@@ -139,7 +141,7 @@ def serve(
     port: int = typer.Option(8000),
     reload: bool = typer.Option(False),
 ):
-    """Sobe FastAPI (uvicorn)."""
+    """Sobe a API FastAPI local. Em produção, prefira o service infinitepay-api."""
     import uvicorn
     uvicorn.run("infinitepay.api.main:app", host=host, port=port, reload=reload)
 

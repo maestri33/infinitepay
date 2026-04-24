@@ -30,9 +30,9 @@ def _now():
     return datetime.now(timezone.utc)
 
 
-def _deliver(job: OutboundJob) -> tuple[bool, str | None, int | None]:
+def _deliver_payload(url: str, payload: dict) -> tuple[bool, str | None, int | None]:
     try:
-        r = httpx.post(job.url, json=job.payload, timeout=settings.http_timeout)
+        r = httpx.post(url, json=payload, timeout=settings.http_timeout)
         if 200 <= r.status_code < 300:
             return True, None, r.status_code
         return False, f"HTTP {r.status_code}: {r.text[:300]}", r.status_code
@@ -42,31 +42,44 @@ def _deliver(job: OutboundJob) -> tuple[bool, str | None, int | None]:
 
 def process_due(limit: int = 20) -> int:
     """Process due jobs. Returns number processed."""
-    processed = 0
     with session_scope() as s:
         stmt = (
-            select(OutboundJob)
+            select(
+                OutboundJob.id,
+                OutboundJob.url,
+                OutboundJob.payload,
+                OutboundJob.attempts,
+                OutboundJob.max_attempts,
+            )
             .where(OutboundJob.delivered_at.is_(None))
             .where(OutboundJob.next_attempt_at <= _now())
             .order_by(OutboundJob.next_attempt_at)
             .limit(limit)
         )
-        jobs = s.execute(stmt).scalars().all()
-        for job in jobs:
-            ok, err, _status = _deliver(job)
-            job.attempts += 1
+        jobs = s.execute(stmt).all()
+
+    processed = 0
+    for job_id, url, payload, attempts, max_attempts in jobs:
+        ok, err, _status = _deliver_payload(url, payload)
+        attempts += 1
+
+        with session_scope() as s:
+            job = s.get(OutboundJob, job_id)
+            if job is None or job.delivered_at is not None:
+                continue
+            job.attempts = attempts
             if ok:
                 job.delivered_at = _now()
                 job.last_error = None
             else:
                 job.last_error = err
-                if job.attempts >= job.max_attempts:
+                if attempts >= max_attempts:
                     # stays undelivered; won't be retried
                     job.next_attempt_at = _now() + timedelta(days=365)
                 else:
-                    delay = BACKOFF_SECONDS[min(job.attempts - 1, len(BACKOFF_SECONDS) - 1)]
+                    delay = BACKOFF_SECONDS[min(attempts - 1, len(BACKOFF_SECONDS) - 1)]
                     job.next_attempt_at = _now() + timedelta(seconds=delay)
-            processed += 1
+        processed += 1
     return processed
 
 

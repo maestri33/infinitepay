@@ -24,7 +24,7 @@ def test_create_checkout_uses_config_defaults(monkeypatch):
 
     def fake_create(payload):
         captured["payload"] = payload
-        return {"success": True, "url": "https://checkout.ipay/abc"}
+        return {"url": "https://checkout.ipay/abc"}
 
     monkeypatch.setattr("infinitepay.core.checkout.create_checkout_link", fake_create)
 
@@ -38,6 +38,24 @@ def test_create_checkout_uses_config_defaults(monkeypatch):
     assert p["items"] == [{"quantity": 1, "price": 100, "description": "Padrão"}]
     assert p["order_nsu"] == "pedido-1"
     assert p["webhook_url"] == "https://my.public.api/webhook/pedido-1/"
+
+
+def test_create_checkout_rejects_success_false_response(monkeypatch):
+    _bootstrap()
+    from infinitepay.core import checkout as co
+
+    monkeypatch.setattr(
+        "infinitepay.core.checkout.create_checkout_link",
+        lambda p: {"success": False, "message": "recusado"},
+    )
+
+    with pytest.raises(co.CheckoutError) as exc:
+        co.create_checkout({
+            "external_id": "pedido-fail",
+            "customer": {"name": "João", "email": "a@b.com", "phone_number": "11999887766"},
+        })
+
+    assert exc.value.code == 502
 
 
 def test_create_checkout_duplicate_external_id(monkeypatch):
@@ -106,13 +124,22 @@ def test_webhook_flow_pays_and_enqueues_backend(monkeypatch):
     )
 
     payload = {
-        "invoice_slug": "VtRJSJkMd",
-        "amount": 100, "paid_amount": 106,
-        "installments": 1, "capture_method": "credit_card",
-        "transaction_nsu": "tx-uuid",
+        "items": [
+            {
+                "price": 101,
+                "quantity": 1,
+                "description": "Doce de amendoim",
+                "product_reference": None,
+            }
+        ],
+        "amount": 101,
         "order_nsu": "p2",
-        "receipt_url": "https://recibo/p2",
-        "items": [],
+        "paid_amount": 106,
+        "receipt_url": "https://recibo.infinitepay.io/a4495b16-c593-4de2-9ff0-83ce89acd0d8",
+        "installments": 1,
+        "invoice_slug": "VtRJSJkMd",
+        "capture_method": "credit_card",
+        "transaction_nsu": "a4495b16-c593-4de2-9ff0-83ce89acd0d8",
     }
     res = co.handle_infinitepay_webhook("p2", payload)
     assert res == {"ok": True, "paid": True}
@@ -122,12 +149,14 @@ def test_webhook_flow_pays_and_enqueues_backend(monkeypatch):
         assert len(jobs) == 1
         assert jobs[0].url == "https://site.com/api/p2/"
         assert jobs[0].payload["paid"] is True
-        assert jobs[0].payload["receipt_url"] == "https://recibo/p2"
+        assert jobs[0].payload["receipt_url"] == "https://recibo.infinitepay.io/a4495b16-c593-4de2-9ff0-83ce89acd0d8"
+        assert jobs[0].payload["amount"] == 101
+        assert jobs[0].payload["paid_amount"] == 106
 
     # Checkout is updated
     got = co.get_checkout("p2")
     assert got["is_paid"] is True
-    assert got["receipt_url"] == "https://recibo/p2"
+    assert got["receipt_url"] == "https://recibo.infinitepay.io/a4495b16-c593-4de2-9ff0-83ce89acd0d8"
 
 
 def test_webhook_invalid_returns_400(monkeypatch):
@@ -150,3 +179,18 @@ def test_webhook_invalid_returns_400(monkeypatch):
     with pytest.raises(co.CheckoutError) as exc:
         co.handle_infinitepay_webhook("p3", payload)
     assert exc.value.code == 400
+
+
+def test_webhook_rejects_order_nsu_mismatch(monkeypatch):
+    _bootstrap()
+    from infinitepay.core import checkout as co
+
+    with pytest.raises(co.CheckoutError) as exc:
+        co.handle_infinitepay_webhook("pedido-correto", {
+            "invoice_slug": "VtRJSJkMd",
+            "transaction_nsu": "a4495b16-c593-4de2-9ff0-83ce89acd0d8",
+            "order_nsu": "outro-pedido",
+        })
+
+    assert exc.value.code == 400
+    assert "order_nsu" in str(exc.value)

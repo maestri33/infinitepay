@@ -35,9 +35,15 @@ def create_checkout_link(payload: dict) -> dict:
                 payload=data,
                 status_code=r.status_code,
             )
-        if not data.get("success", False):
+        if data.get("success") is False:
             raise InfinitePayError(
                 "InfinitePay returned success=false",
+                payload=data,
+                status_code=r.status_code,
+            )
+        if not (data.get("url") or data.get("checkout_url")):
+            raise InfinitePayError(
+                "InfinitePay response missing checkout URL",
                 payload=data,
                 status_code=r.status_code,
             )

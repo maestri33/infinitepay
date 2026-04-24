@@ -26,12 +26,12 @@ def _serialize(d: dict) -> dict:
     return out
 
 
-@router.get("/")
+@router.get("/", summary="Mostrar configuração", description="Retorna os defaults usados para criar checkouts e o estado de validação da public_api_url.")
 def get_config():
     return _serialize(cfg_core.get_config_dict())
 
 
-@router.patch("/")
+@router.patch("/", summary="Atualizar configuração", description="Atualiza defaults. Alterar public_api_url gera token novo e bloqueia checkouts até validação externa.")
 def patch_config(body: ConfigPatch):
     data = body.model_dump(exclude_unset=True)
     result = cfg_core.patch_config(data)
@@ -46,7 +46,7 @@ def patch_config(body: ConfigPatch):
     return result
 
 
-@router.get("/test/")
+@router.get("/test/", summary="Validar public_api_url", description="Endpoint público chamado externamente para provar que a URL pública chega nesta API.")
 def validate_public_url(token: str = Query(...)):
     ok = cfg_core.mark_validated(token)
     if not ok:

@@ -1,135 +1,344 @@
 # infinitepay
 
-Integração com a InfinitePay (checkout via link) — **FastAPI + Typer CLI**, ambas usando a mesma lógica central. Persistência em **SQLite**. Fila de retry para o webhook do seu backend também em SQLite (sem Redis).
+Integração com a InfinitePay para checkout por link. O projeto entrega uma API FastAPI, uma CLI `ipay`, SQLite para estado local e uma fila de retry para notificar o backend do usuário depois que a InfinitePay confirma o pagamento.
 
-## Instalação
+O fluxo foi validado com pagamento real: criação de link, webhook público, `payment_check`, atualização do checkout e entrega do backend webhook.
+
+## Instalação local
 
 ```bash
 cd ~/Desktop/infinitepay
-python3.11 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
+pip install -e '.[dev]'
+pytest -q
 ```
 
-DB e diretório ficam em `~/.infinitepay/app.db` (sobrescreva com `IPAY_DB_PATH`).
+O banco padrão fica em `~/.infinitepay/app.db`. Em produção use `IPAY_DB_PATH=/var/lib/infinitepay/app.db` ou outro caminho persistente.
 
-## Bootstrap (obrigatório antes de usar)
+## Conceitos
 
-Toda rota (exceto `/health`, `/config/*`) fica **bloqueada com 503** até o `public_api_url` ser configurado **e validado**.
+- `price` sempre é inteiro em centavos. R$ 1,00 = `100`.
+- `external_id` é o ID único do pedido no seu sistema. Ele vira `order_nsu` na InfinitePay.
+- `public_api_url` é a URL pública desta API, usada para receber o webhook da InfinitePay.
+- `backend_webhook` é a URL do seu backend; depois do pagamento confirmado, o app faz `POST {backend_webhook}/{external_id}/`.
+- `redirect_url` é para onde o cliente volta depois do checkout.
+- A criação de checkout só é liberada depois que `public_api_url` for validada externamente.
 
-1. Configure os defaults + a URL pública desta API:
+## Bootstrap
+
+Configure os defaults e gere o token de validação:
 
 ```bash
-ipay config set \
+IPAY_DB_PATH=/var/lib/infinitepay/app.db ipay config set \
   --handle v7m \
   --price 100 \
-  --description "Venda padrão" \
+  --description "Rosa Azul" \
   --redirect-url https://seusite.com/pago \
   --backend-webhook https://seusite.com/api/ipay \
-  --public-api-url https://minha-api-publica.com
+  --public-api-url https://infinitepay.seudominio.com
 ```
 
-A resposta traz um `validation_token`. Agora um serviço **externo** deve bater:
-
-```
-GET https://minha-api-publica.com/config/test/?token=<validation_token>
-```
-
-Se chegar, a API marca como validado e libera o resto. Em dev dá pra usar `ipay config force-validate`.
-
-2. Altere qualquer campo depois com outro `ipay config set ...` ou `PATCH /config/`. Mudar `public_api_url` reinicia o ciclo de validação.
-
-## Uso via API
+A resposta inclui `validation_token`. Valide a URL pública a partir de fora do container:
 
 ```bash
-ipay serve --reload
+curl 'https://infinitepay.seudominio.com/config/test/?token=<validation_token>'
 ```
 
-- `GET /config/` · `PATCH /config/`
-- `GET /config/test/?token=...`
-- `POST /checkout/` — cria checkout (body merge com config)
-- `GET  /checkout/` — lista
-- `GET  /checkout/{external_id}/` — retorna `checkout_url` ou `receipt_url` conforme `is_paid`
-- `POST /webhook/{external_id}/` — recebe webhook da InfinitePay
+Depois disso:
 
-### Body do POST /checkout/
+```bash
+curl https://infinitepay.seudominio.com/health
+# {"ok":true,"ready":true}
+```
+
+Alterar `public_api_url` sempre reseta a validação.
+
+## API
+
+Rode localmente:
+
+```bash
+ipay serve --host 0.0.0.0 --port 8000
+```
+
+### `GET /health`
+
+Retorna `{ok, ready}`. `ready=false` indica que `public_api_url` ainda não foi validada.
+
+### `GET /config/`
+
+Mostra a configuração atual.
+
+### `PATCH /config/`
+
+Atualiza qualquer subconjunto de config.
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/config/ \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "handle":"v7m",
+    "price":100,
+    "description":"Rosa Azul",
+    "redirect_url":"https://seusite.com/pago",
+    "backend_webhook":"https://seusite.com/api/ipay",
+    "public_api_url":"https://infinitepay.seudominio.com"
+  }'
+```
+
+### `GET /config/test/?token=...`
+
+Valida `public_api_url`. Essa rota precisa estar acessível publicamente por HTTPS.
+
+### `POST /checkout/`
+
+Cria link real na InfinitePay. Campos omitidos caem nos defaults de `/config/`.
+
+```bash
+curl -X POST http://127.0.0.1:8000/checkout/ \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "external_id":"pedido-123",
+    "price":101,
+    "description":"Doce de amendoim",
+    "customer": {
+      "name":"Victor Maestri",
+      "phone_number":"+5543996648750",
+      "email":"victormaestri@gmail.com"
+    },
+    "address": {
+      "cep":"84050360",
+      "street":"Rua Ataulfo Alves",
+      "number":"770",
+      "neighborhood":"Estrela"
+    }
+  }'
+```
+
+Resposta esperada:
+
+```json
+{"external_id":"pedido-123","checkout_url":"https://checkout.infinitepay.io/v7m?..."}
+```
+
+A API pública da InfinitePay pode responder apenas `{"url":"..."}` na criação do link. Isso é sucesso. `success:false` explícito é tratado como erro.
+
+### `GET /checkout/`
+
+Lista checkouts locais.
+
+### `GET /checkout/{external_id}/`
+
+Retorna pendente ou pago:
+
+```json
+{"external_id":"pedido-123","is_paid":false,"checkout_url":"https://checkout.infinitepay.io/..."}
+```
+
+```json
+{"external_id":"pedido-123","is_paid":true,"receipt_url":"https://recibo.infinitepay.io/..."}
+```
+
+### `POST /webhook/{external_id}/`
+
+Entrada chamada pela InfinitePay. Não chame manualmente em produção.
+
+Payload real recebido da InfinitePay:
+
+```json
+{
+  "items": [
+    {
+      "price": 101,
+      "quantity": 1,
+      "description": "Doce de amendoim",
+      "product_reference": null
+    }
+  ],
+  "amount": 101,
+  "order_nsu": "pedido-123",
+  "paid_amount": 106,
+  "receipt_url": "https://recibo.infinitepay.io/a4495b16-c593-4de2-9ff0-83ce89acd0d8",
+  "installments": 1,
+  "invoice_slug": "VtRJSJkMd",
+  "capture_method": "credit_card",
+  "transaction_nsu": "a4495b16-c593-4de2-9ff0-83ce89acd0d8"
+}
+```
+
+O app valida que `payload.order_nsu == {external_id}` da rota antes de chamar `payment_check`. Se divergir, responde `400`.
+
+Fluxo interno:
+
+1. Loga payload inbound em `webhook_logs`.
+2. Chama `POST https://api.infinitepay.io/invoices/public/checkout/payment_check` com `handle`, `order_nsu`, `transaction_nsu` e `slug=invoice_slug`.
+3. Se `success:false`, responde `400` para a InfinitePay tentar novamente.
+4. Se `success:true, paid:true`, marca o checkout como pago e enfileira o backend webhook.
+
+Payload enviado ao `backend_webhook`:
 
 ```json
 {
   "external_id": "pedido-123",
-  "price": 1000,
-  "description": "Camiseta",
-  "customer": {"name": "João Silva", "email": "joao@email.com", "phone_number": "+5511999887766"},
-  "address": {"cep": "12345-678", "street": "Rua X", "neighborhood": "Centro", "number": "10"}
+  "paid": true,
+  "receipt_url": "https://recibo.infinitepay.io/...",
+  "transaction_nsu": "...",
+  "invoice_slug": "...",
+  "capture_method": "credit_card",
+  "installments": 1,
+  "amount": 101,
+  "paid_amount": 106
 }
 ```
 
-- Campos ausentes no body caem nos valores do `/config/`.
-- `public_api_url` **nunca** pode vir no body.
-- Pra múltiplos produtos, mande `items: [...]` (sobrescreve `price`/`description`).
-- `external_id` duplicado → 409.
+## CLI
 
-## Uso via CLI
+Configuração:
 
 ```bash
-ipay config show
-ipay checkout create --external-id pedido-123 \
-  --name "João" --email joao@email.com --phone +5511999887766
-ipay checkout list
-ipay checkout get pedido-123
-ipay worker     # processa fila de retries do backend_webhook
+IPAY_DB_PATH=/var/lib/infinitepay/app.db ipay config show
+IPAY_DB_PATH=/var/lib/infinitepay/app.db ipay config validate-token
+IPAY_DB_PATH=/var/lib/infinitepay/app.db ipay config set \
+  --handle v7m \
+  --price 100 \
+  --description "Rosa Azul" \
+  --redirect-url https://seusite.com/pago \
+  --backend-webhook https://seusite.com/api/ipay \
+  --public-api-url https://infinitepay.seudominio.com
 ```
 
-## Fluxo do webhook (entrada da InfinitePay)
-
-1. Recebe `POST /webhook/{external_id}/` → loga o payload.
-2. Chama `POST https://api.infinitepay.io/invoices/public/checkout/payment_check` com `{handle, order_nsu, transaction_nsu, slug=invoice_slug}`.
-3. Se `success:false` → responde **400** (InfinitePay re-enviará).
-4. Se `success:true, paid:true` → atualiza checkout (`is_paid`, `receipt_url`, `transaction_nsu`, `invoice_slug`, `capture_method`, `installments`) e **enfileira** um POST para `backend_webhook/{external_id}/` com `{paid:true, ...}`. Retries exponenciais (1m→24h).
-
-## Logs
-
-Tudo fica em `webhook_logs` (SQLite): payloads de entrada, chamadas para `/checkout/links`, `/payment_check`, e disparos de `backend_webhook`.
-
-## Deploy em LXC (systemd)
-
-Dentro do container (Debian/Ubuntu) como root:
+Criar cobrança:
 
 ```bash
-# copie o repo pro container (rsync, scp, git clone...) e:
-cd /caminho/do/repo && bash deploy/install-lxc.sh
+IPAY_DB_PATH=/var/lib/infinitepay/app.db ipay checkout create \
+  --external-id pedido-123 \
+  --name "Victor Maestri" \
+  --email victormaestri@gmail.com \
+  --phone +5543996648750 \
+  --price 101 \
+  --description "Doce de amendoim" \
+  --address-json '{"cep":"84050360","street":"Rua Ataulfo Alves","number":"770","neighborhood":"Estrela"}'
 ```
 
-O script cria usuário `infinitepay`, venv em `/opt/infinitepay/.venv`, SQLite em `/var/lib/infinitepay/app.db`, env em `/etc/infinitepay/env`, e sobe o service `infinitepay-api` no systemd (porta 8000).
+Consultar:
 
-**Worker**: por padrão o worker de retry roda **inline** no processo da API (via lifespan asyncio). Se quiser escalar/separar, edite `/etc/infinitepay/env` → `IPAY_RUN_INLINE_WORKER=false` e habilite o service dedicado:
+```bash
+IPAY_DB_PATH=/var/lib/infinitepay/app.db ipay checkout list
+IPAY_DB_PATH=/var/lib/infinitepay/app.db ipay checkout get pedido-123
+```
+
+Worker dedicado, se não usar worker inline:
+
+```bash
+IPAY_DB_PATH=/var/lib/infinitepay/app.db ipay worker
+```
+
+## Endpoints internos de teste
+
+Essas rotas existem para smoke test local e para testar o disparo de backend webhook sem depender do app final:
+
+- `GET /test/redirect/` retorna `{"ok":true,"kind":"test_redirect"}`.
+- `POST /test/backend-webhook/{external_id}/` grava o payload recebido em `webhook_logs` com `kind=test_backend_webhook`.
+
+Use como `redirect_url` e `backend_webhook` temporários:
+
+```bash
+--redirect-url http://10.10.10.120:8000/test/redirect/ \
+--backend-webhook http://10.10.10.120:8000/test/backend-webhook
+```
+
+Não é necessário expor `/test/*` publicamente.
+
+## Proxy publico recomendado
+
+Para produção, exponha apenas:
+
+- `GET /health`
+- `GET /config/test/`
+- `POST /webhook/{external_id}/`
+
+Mantenha `/checkout/`, `/config/` e `/test/*` acessíveis apenas na rede interna ou via operação controlada.
+
+Exemplo de proxy host Nginx Proxy Manager customizado:
+
+```nginx
+location = /health {
+  limit_except GET { deny all; }
+  include conf.d/include/proxy.conf;
+}
+
+location = /config/test/ {
+  limit_except GET { deny all; }
+  include conf.d/include/proxy.conf;
+}
+
+location ~ ^/webhook/[A-Za-z0-9_\-.]+/?$ {
+  limit_except POST { deny all; }
+  include conf.d/include/proxy.conf;
+}
+
+location / {
+  return 404;
+}
+```
+
+## Deploy em LXC com systemd
+
+Dentro do container Debian/Ubuntu, como root:
+
+```bash
+cd /root/infinitepay
+bash deploy/install-lxc.sh
+systemctl status infinitepay-api --no-pager -l
+```
+
+O script cria:
+
+- usuario de sistema `infinitepay`
+- app em `/opt/infinitepay`
+- venv em `/opt/infinitepay/.venv`
+- banco em `/var/lib/infinitepay/app.db`
+- env em `/etc/infinitepay/env`
+- servico `infinitepay-api` na porta `8000`
+- servico opcional `infinitepay-worker`
+
+Por padrão, o worker de retry roda inline no processo da API. Para usar worker dedicado, defina no `/etc/infinitepay/env`:
+
+```bash
+IPAY_RUN_INLINE_WORKER=false
+```
+
+Depois habilite:
 
 ```bash
 systemctl enable --now infinitepay-worker
 ```
 
-⚠️ Só rode **um** worker (inline OU dedicado). Os dois ao mesmo tempo podem disparar entregas duplicadas.
+Use apenas um worker: inline ou dedicado.
 
-Logs: `journalctl -u infinitepay-api -f`.
-
-### Docker (alternativa)
+Logs:
 
 ```bash
-docker build -t infinitepay .
-docker run -d --name ipay -p 8000:8000 -v ipay-data:/data infinitepay
-```
-
-## Testes
-
-```bash
-pip install -e '.[dev]'
-pytest -q
+journalctl -u infinitepay-api -f
 ```
 
 ## Variáveis de ambiente
 
-- `IPAY_DB_PATH` — path do SQLite (default `~/.infinitepay/app.db`)
-- `IPAY_INFINITEPAY_BASE_URL` — default `https://api.infinitepay.io`
-- `IPAY_HTTP_TIMEOUT` — segundos (default 15)
-- `IPAY_WORKER_POLL_SECONDS` — default 5
-- `IPAY_RUN_INLINE_WORKER` — default `true`; `false` se usar o service dedicado
+- `IPAY_DB_PATH`: caminho do SQLite. Default: `~/.infinitepay/app.db`.
+- `IPAY_INFINITEPAY_BASE_URL`: default `https://api.infinitepay.io`.
+- `IPAY_HTTP_TIMEOUT`: timeout HTTP em segundos. Default: `15`.
+- `IPAY_WORKER_POLL_SECONDS`: intervalo do worker. Default: `5`.
+- `IPAY_RUN_INLINE_WORKER`: default `true`; use `false` se habilitar `infinitepay-worker`.
+
+## Troubleshooting
+
+| Sintoma | Causa provável | Ação |
+|---|---|---|
+| `ready:false` | `public_api_url` ainda não validada | `ipay config validate-token` e `GET /config/test/?token=...` pela URL pública |
+| `409` ao criar checkout | `external_id` duplicado ou app bloqueado | `ipay checkout get <external_id>` e `ipay config show` |
+| `502` na criação | InfinitePay recusou ou não retornou URL | Ver `webhook_logs` com `kind=create_link` |
+| Pagamento não vira pago | Webhook não chegou ou `payment_check` falhou | Ver `kind=infinitepay_webhook` e `kind=payment_check` |
+| Backend não recebeu | Retry pendente ou URL errada | Ver `outbound_jobs.last_error`, `attempts`, `delivered_at` |
+
+Os logs ficam em `webhook_logs`; retries ficam em `outbound_jobs`.
