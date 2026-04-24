@@ -19,9 +19,7 @@ Use esta skill quando o usuário quiser operar checkouts InfinitePay a partir de
 Na LXC remota:
 
 ```bash
-git clone https://github.com/maestri33/infinitepay.git /tmp/infinitepay
-cd /tmp/infinitepay
-bash deploy/install-remote-cli.sh http://10.10.10.120:8000
+bash <(curl -fsSL https://raw.githubusercontent.com/maestri33/infinitepay/main/install_cli.sh) http://10.10.10.120:8000
 ```
 
 O instalador cria:
@@ -30,6 +28,14 @@ O instalador cria:
 - venv em `/opt/infinitepay-remote/.venv`
 - wrapper `/usr/local/bin/ipay-remote`
 - `IPAY_API_URL` fixo no wrapper
+
+Alternativa por clone local:
+
+```bash
+git clone https://github.com/maestri33/infinitepay.git /tmp/infinitepay
+cd /tmp/infinitepay
+bash deploy/install-remote-cli.sh http://10.10.10.120:8000
+```
 
 Alternativa sem wrapper:
 

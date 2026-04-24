@@ -88,9 +88,7 @@ Se a cobrança precisar ser criada a partir de outra LXC, não use a CLI nativa 
 Instalação remota:
 
 ```bash
-git clone https://github.com/maestri33/infinitepay.git /tmp/infinitepay
-cd /tmp/infinitepay
-bash deploy/install-remote-cli.sh http://10.10.10.120:8000
+bash <(curl -fsSL https://raw.githubusercontent.com/maestri33/infinitepay/main/install_cli.sh) http://10.10.10.120:8000
 ```
 
 Comandos remotos permitidos:

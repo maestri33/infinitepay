@@ -301,12 +301,18 @@ Configuração continua exclusiva da LXC principal.
 Na outra LXC:
 
 ```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/maestri33/infinitepay/main/install_cli.sh) http://10.10.10.120:8000
+```
+
+O instalador cria `/opt/infinitepay-remote`, instala o pacote em venv e gera `/usr/local/bin/ipay-remote` com `IPAY_API_URL` apontando para a API principal.
+
+Se preferir instalar a partir de clone local:
+
+```bash
 git clone https://github.com/maestri33/infinitepay.git /tmp/infinitepay
 cd /tmp/infinitepay
 bash deploy/install-remote-cli.sh http://10.10.10.120:8000
 ```
-
-O instalador cria `/opt/infinitepay-remote`, instala o pacote em venv e gera `/usr/local/bin/ipay-remote` com `IPAY_API_URL` apontando para a API principal.
 
 Também dá para usar sem wrapper:
 
