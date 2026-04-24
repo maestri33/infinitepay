@@ -19,6 +19,7 @@ dev = ["pytest>=8", "httpx>=0.27"]
 
 [project.scripts]
 ipay = "infinitepay.cli:app"
+ipay-remote = "infinitepay.remote_cli:app"
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -81,6 +81,29 @@ ipay checkout list
 ipay checkout get pedido-123
 ```
 
+## CLI remota em outra LXC
+
+Se a cobrança precisar ser criada a partir de outra LXC, não use a CLI nativa `ipay`, porque ela fala com o SQLite local. Use a skill `infinitepay-remote` e a CLI `ipay-remote`.
+
+Instalação remota:
+
+```bash
+git clone https://github.com/maestri33/infinitepay.git /tmp/infinitepay
+cd /tmp/infinitepay
+bash deploy/install-remote-cli.sh http://10.10.10.120:8000
+```
+
+Comandos remotos permitidos:
+
+```bash
+ipay-remote health
+ipay-remote checkout create ...
+ipay-remote checkout list
+ipay-remote checkout get pedido-123
+```
+
+Não configure `handle`, URLs ou `public_api_url` pela LXC remota. Configuração fica somente na LXC principal.
+
 ## API endpoints
 
 Base interna: `http://host:8000`.
@@ -175,6 +198,24 @@ Payload do backend webhook:
   "paid_amount": 106
 }
 ```
+
+Auditoria esperada em `webhook_logs` para pagamento real:
+
+1. `create_link`
+2. `infinitepay_webhook`
+3. `payment_check`
+4. log do backend real ou `test_backend_webhook`
+
+Status do webhook:
+
+- `200 {"ok":true,"paid":true}`: pago e backend webhook enfileirado.
+- `200 {"ok":true,"paid":false}`: webhook válido, mas ainda não pago.
+- `400` por payload incompleto: faltou `transaction_nsu` ou `invoice_slug`.
+- `400` por `order_nsu` divergente: URL e payload não batem.
+- `400` por `payment_check success:false`: InfinitePay não validou o evento.
+- `404` por checkout desconhecido: não existe `external_id` local.
+
+O backend webhook é assíncrono. Ver `outbound_jobs.delivered_at`, `attempts` e `last_error`; destino `2xx` marca entregue, erro/timeout gera retry com backoff.
 
 ## Produção / proxy
 

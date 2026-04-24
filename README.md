@@ -192,6 +192,55 @@ Payload enviado ao `backend_webhook`:
 }
 ```
 
+### Auditoria do webhook
+
+Quando um pagamento real funciona, a sequência esperada em `webhook_logs` é:
+
+1. `kind=create_link`: checkout criado na InfinitePay, com `webhook_url` apontando para `public_api_url`.
+2. `kind=infinitepay_webhook`: payload recebido da InfinitePay.
+3. `kind=payment_check`: validação feita contra `https://api.infinitepay.io/invoices/public/checkout/payment_check`.
+4. `kind=test_backend_webhook` ou log do seu backend real: confirmação repassada ao destino configurado em `backend_webhook`.
+
+Na LXC principal, consulte por Python/SQLAlchemy:
+
+```bash
+cd /opt/infinitepay
+IPAY_DB_PATH=/var/lib/infinitepay/app.db /opt/infinitepay/.venv/bin/python - <<'PY'
+from sqlalchemy import select
+from infinitepay.db.models import WebhookLog, OutboundJob
+from infinitepay.db.session import session_scope
+
+external_id = "pedido-123"
+with session_scope() as s:
+    logs = s.execute(
+        select(WebhookLog)
+        .where(WebhookLog.external_id == external_id)
+        .order_by(WebhookLog.id)
+    ).scalars().all()
+    for row in logs:
+        print(row.id, row.direction, row.kind, row.created_at, row.payload, row.response)
+
+    jobs = s.execute(
+        select(OutboundJob)
+        .where(OutboundJob.external_id == external_id)
+        .order_by(OutboundJob.id)
+    ).scalars().all()
+    for job in jobs:
+        print(job.id, job.url, job.attempts, job.delivered_at, job.last_error)
+PY
+```
+
+Status codes importantes:
+
+- `200 {"ok":true,"paid":true}`: webhook validado, checkout marcado como pago e backend webhook enfileirado.
+- `200 {"ok":true,"paid":false}`: InfinitePay confirmou o webhook, mas `payment_check` ainda não indica pago.
+- `400 {"detail":"payload de webhook incompleto..."}`: faltou `transaction_nsu` ou `invoice_slug`.
+- `400 {"detail":"order_nsu do webhook diverge..."}`: URL e payload não pertencem ao mesmo pedido.
+- `400 {"detail":"webhook não pôde ser validado"}`: `payment_check` retornou `success:false`.
+- `404 {"detail":"checkout desconhecido..."}`: a InfinitePay chamou um `external_id` que não existe no SQLite local.
+
+O `backend_webhook` é assíncrono. Se o destino responder `2xx`, `outbound_jobs.delivered_at` é preenchido. Se responder erro ou der timeout, `last_error` guarda o motivo e o worker tenta de novo com backoff.
+
 ## CLI
 
 Configuração:
@@ -233,6 +282,66 @@ Worker dedicado, se não usar worker inline:
 ```bash
 IPAY_DB_PATH=/var/lib/infinitepay/app.db ipay worker
 ```
+
+## CLI remota em outra LXC
+
+A CLI `ipay` nativa fala direto com o SQLite local, então ela deve ser usada na LXC principal. Para operar de outra LXC sem copiar banco nem liberar `/config/`, use `ipay-remote`.
+
+`ipay-remote` chama a API principal por HTTP interno e implementa somente:
+
+- `health`
+- `checkout create`
+- `checkout list`
+- `checkout get`
+
+Configuração continua exclusiva da LXC principal.
+
+### Instalar na LXC remota
+
+Na outra LXC:
+
+```bash
+git clone https://github.com/maestri33/infinitepay.git /tmp/infinitepay
+cd /tmp/infinitepay
+bash deploy/install-remote-cli.sh http://10.10.10.120:8000
+```
+
+O instalador cria `/opt/infinitepay-remote`, instala o pacote em venv e gera `/usr/local/bin/ipay-remote` com `IPAY_API_URL` apontando para a API principal.
+
+Também dá para usar sem wrapper:
+
+```bash
+export IPAY_API_URL=http://10.10.10.120:8000
+ipay-remote health
+```
+
+### Usar a CLI remota
+
+```bash
+ipay-remote health
+```
+
+Criar cobrança real pela API principal:
+
+```bash
+ipay-remote checkout create \
+  --external-id pedido-123 \
+  --name "Victor Maestri" \
+  --email victormaestri@gmail.com \
+  --phone +5543996648750 \
+  --price 101 \
+  --description "Doce de amendoim" \
+  --address-json '{"cep":"84050360","street":"Rua Ataulfo Alves","number":"770","neighborhood":"Estrela"}'
+```
+
+Listar e consultar:
+
+```bash
+ipay-remote checkout list
+ipay-remote checkout get pedido-123
+```
+
+Se `price` e `description` forem omitidos, a API principal usa os defaults configurados na LXC nativa. O webhook público e o `backend_webhook` continuam sendo processados pela LXC principal; a LXC remota só pede a criação/consulta via HTTP.
 
 ## Endpoints internos de teste
 
