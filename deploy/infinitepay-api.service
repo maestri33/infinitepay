@@ -1,0 +1,24 @@
+[Unit]
+Description=InfinitePay Integration API (FastAPI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=infinitepay
+Group=infinitepay
+WorkingDirectory=/opt/infinitepay
+EnvironmentFile=-/etc/infinitepay/env
+ExecStart=/opt/infinitepay/.venv/bin/uvicorn infinitepay.api.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*
+Restart=on-failure
+RestartSec=3
+StateDirectory=infinitepay
+# security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/infinitepay
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,21 @@
+FROM python:3.12-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    IPAY_DB_PATH=/data/app.db
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY infinitepay ./infinitepay
+
+RUN pip install --upgrade pip && pip install .
+
+RUN useradd --system --home /app --shell /usr/sbin/nologin ipay \
+ && mkdir -p /data && chown -R ipay:ipay /data /app
+
+USER ipay
+VOLUME ["/data"]
+EXPOSE 8000
+
+CMD ["uvicorn", "infinitepay.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
