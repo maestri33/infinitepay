@@ -250,37 +250,195 @@ Use como `redirect_url` e `backend_webhook` temporários:
 
 Não é necessário expor `/test/*` publicamente.
 
-## Proxy publico recomendado
+## Nginx / exposição pública
 
-Para produção, exponha apenas:
+A API pode escutar internamente em `0.0.0.0:8000`, mas a internet não precisa acessar tudo. Em produção, exponha apenas os endpoints que a InfinitePay ou o monitoramento externo precisam chamar:
 
-- `GET /health`
-- `GET /config/test/`
-- `POST /webhook/{external_id}/`
+- `GET /health`: health público simples.
+- `GET /config/test/`: validação externa do `public_api_url`.
+- `POST /webhook/{external_id}/`: webhook real da InfinitePay.
 
-Mantenha `/checkout/`, `/config/` e `/test/*` acessíveis apenas na rede interna ou via operação controlada.
+Mantenha internos:
 
-Exemplo de proxy host Nginx Proxy Manager customizado:
+- `/checkout/`: cria cobranças reais; deve ficar atrás do seu backend, VPN, SSH, automação interna ou CLI.
+- `/config/`: altera handle, preço, URLs e validação; nunca exponha publicamente sem autenticação.
+- `/test/*`: smoke tests internos; não há motivo para expor.
+
+### Apontamento do proxy
+
+No Nginx Proxy Manager, crie um Proxy Host para o domínio público, por exemplo `infinitepay.seudominio.com`, apontando para o LXC que roda a API:
+
+```text
+Forward Hostname / IP: 10.10.10.120
+Forward Port: 8000
+Scheme: http
+SSL: Let's Encrypt ativo
+Force SSL: ativo
+```
+
+Na aba Advanced, deixe o `location /` negando tudo e libere somente os paths abaixo. O exemplo inclui os headers que o NPM costuma gerar; se o seu template já injeta esses headers via `include conf.d/include/proxy.conf`, mantenha o include.
 
 ```nginx
-location = /health {
-  limit_except GET { deny all; }
-  include conf.d/include/proxy.conf;
-}
-
-location = /config/test/ {
-  limit_except GET { deny all; }
-  include conf.d/include/proxy.conf;
-}
-
-location ~ ^/webhook/[A-Za-z0-9_\-.]+/?$ {
-  limit_except POST { deny all; }
-  include conf.d/include/proxy.conf;
-}
-
+# default: nega tudo que nao foi liberado explicitamente
 location / {
   return 404;
 }
+
+# health publico - apenas GET
+location = /health {
+  limit_except GET { deny all; }
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection $http_connection;
+  proxy_http_version 1.1;
+  include conf.d/include/proxy.conf;
+}
+
+# validacao do public_api_url - apenas GET
+location = /config/test/ {
+  limit_except GET { deny all; }
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection $http_connection;
+  proxy_http_version 1.1;
+  include conf.d/include/proxy.conf;
+}
+
+# webhook da InfinitePay - apenas POST
+location ~ ^/webhook/[A-Za-z0-9_\-.]+/?$ {
+  limit_except POST { deny all; }
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection $http_connection;
+  proxy_http_version 1.1;
+  include conf.d/include/proxy.conf;
+}
+```
+
+Depois de editar, teste e recarregue o Nginx. Em NPM rodando dentro de Docker:
+
+```bash
+docker exec nginx-proxy-manager-npm-1 nginx -t
+docker exec nginx-proxy-manager-npm-1 nginx -s reload
+```
+
+### Respostas públicas esperadas
+
+Com `public_api_url` já validada:
+
+```bash
+curl -i https://infinitepay.seudominio.com/health
+# HTTP/2 200
+# {"ok":true,"ready":true}
+```
+
+Antes de validar, `ready` será `false`:
+
+```json
+{"ok":true,"ready":false}
+```
+
+Validação externa do domínio:
+
+```bash
+curl -i 'https://infinitepay.seudominio.com/config/test/?token=<validation_token>'
+# HTTP/2 200
+# {"ok":true,"validated":true}
+```
+
+Token errado ou URL ainda não configurada:
+
+```bash
+# HTTP/2 400
+{"detail":"token inválido ou public_api_url não configurado"}
+```
+
+Rotas não expostas devem responder pelo proxy, não pela aplicação:
+
+```bash
+curl -i https://infinitepay.seudominio.com/checkout/
+# HTTP/2 404
+```
+
+Método errado em rota exposta deve ser bloqueado pelo Nginx:
+
+```bash
+curl -i -X POST https://infinitepay.seudominio.com/health
+# HTTP/2 403
+```
+
+Webhook real bem processado pela InfinitePay:
+
+```bash
+# POST /webhook/pedido-123/
+# HTTP/2 200
+{"ok":true,"paid":true}
+```
+
+Webhook com `order_nsu` diferente do `{external_id}` da URL:
+
+```bash
+# HTTP/2 400
+{
+  "detail":"order_nsu do webhook diverge do external_id da rota",
+  "external_id":"pedido-correto",
+  "order_nsu":"outro-pedido"
+}
+```
+
+### Webhook interno do seu backend
+
+O `backend_webhook` não é chamado pela InfinitePay nem precisa ser público para ela. Ele é chamado por esta aplicação depois que o webhook da InfinitePay foi validado com `payment_check`.
+
+Se você configurar:
+
+```bash
+--backend-webhook https://app.seudominio.com/api/ipay
+```
+
+então, para `external_id=pedido-123`, esta aplicação fará:
+
+```text
+POST https://app.seudominio.com/api/ipay/pedido-123/
+```
+
+com payload:
+
+```json
+{
+  "external_id": "pedido-123",
+  "paid": true,
+  "receipt_url": "https://recibo.infinitepay.io/...",
+  "transaction_nsu": "...",
+  "invoice_slug": "...",
+  "capture_method": "credit_card",
+  "installments": 1,
+  "amount": 101,
+  "paid_amount": 106
+}
+```
+
+O backend deve responder `2xx` para marcar o job como entregue. Qualquer resposta não-2xx ou timeout fica em `outbound_jobs.last_error` e será retentada com backoff exponencial. O backend deve ser idempotente por `external_id` e/ou `transaction_nsu`, porque retries podem repetir a entrega.
+
+Para teste sem o app final, use o webhook interno local:
+
+```bash
+--backend-webhook http://10.10.10.120:8000/test/backend-webhook
+```
+
+Ele grava o payload em `webhook_logs` com `kind=test_backend_webhook` e responde:
+
+```json
+{"ok":true,"external_id":"pedido-123"}
 ```
 
 ## Deploy em LXC com systemd

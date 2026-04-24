@@ -186,6 +186,48 @@ Exponha publicamente apenas:
 
 Mantenha `/checkout/`, `/config/` e `/test/*` internos.
 
+Nginx/NPM deve apontar o domínio público para o LXC da API, por exemplo:
+
+```text
+Forward Hostname / IP: 10.10.10.120
+Forward Port: 8000
+Scheme: http
+SSL + Force SSL: ativo
+```
+
+Configuração esperada de paths:
+
+```nginx
+location / { return 404; }
+
+location = /health {
+  limit_except GET { deny all; }
+  include conf.d/include/proxy.conf;
+}
+
+location = /config/test/ {
+  limit_except GET { deny all; }
+  include conf.d/include/proxy.conf;
+}
+
+location ~ ^/webhook/[A-Za-z0-9_\-.]+/?$ {
+  limit_except POST { deny all; }
+  include conf.d/include/proxy.conf;
+}
+```
+
+Respostas esperadas:
+
+- `GET /health` -> `200 {"ok":true,"ready":true}` quando validado; `ready:false` antes da validação.
+- `GET /config/test/?token=<token>` -> `200 {"ok":true,"validated":true}`.
+- Token errado -> `400 {"detail":"token inválido ou public_api_url não configurado"}`.
+- `GET /checkout/` público -> `404` do proxy.
+- Método errado, como `POST /health` -> `403` do proxy.
+- Webhook pago válido -> `200 {"ok":true,"paid":true}`.
+- Webhook com `order_nsu` divergente -> `400` com `external_id` e `order_nsu` no JSON.
+
+O `backend_webhook` é interno ao fluxo do app. A InfinitePay chama somente `/webhook/{external_id}/`; depois de `payment_check`, este app chama `POST {backend_webhook}/{external_id}/` com `{paid:true, receipt_url, transaction_nsu, invoice_slug, capture_method, installments, amount, paid_amount}`. O backend deve responder `2xx` e ser idempotente por `external_id`/`transaction_nsu`.
+
 ## Playbooks
 
 ### Criar cobrança
