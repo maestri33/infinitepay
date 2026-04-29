@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -78,6 +79,10 @@ def create_app() -> FastAPI:
     @app.exception_handler(ValidationError)
     async def _validation_err(_req, exc: ValidationError):
         return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @app.exception_handler(json.JSONDecodeError)
+    async def _json_decode_err(_req, exc: json.JSONDecodeError):
+        return JSONResponse(status_code=400, content={"detail": f"JSON inválido no body: {exc.msg}"})
 
     @app.get("/health", summary="Health e readiness", description="Retorna ok=true e ready=true quando public_api_url está configurada e validada.")
     def health():
