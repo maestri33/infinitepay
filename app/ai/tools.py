@@ -1,7 +1,7 @@
 import json
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 
 from app.db import session_scope
 from app.models.models import Checkout
@@ -11,7 +11,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "list_checkouts",
-            "description": "Lista checkouts recentes (ate 50) com status, cliente, valores e datas.",
+            "description": "Lista ate 50 checkouts recentes com status, cliente, valores e datas.",
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
