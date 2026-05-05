@@ -121,13 +121,3 @@ async def run_worker_loop(stop_event=None) -> None:
         await asyncio.sleep(get_settings().worker_poll_seconds)
 
 
-def run_worker_blocking() -> None:
-    import time
-
-    cleanup_old_jobs()
-    while True:
-        try:
-            process_due()
-        except Exception:
-            logger.exception("worker loop: process_due failed")
-        time.sleep(get_settings().worker_poll_seconds)

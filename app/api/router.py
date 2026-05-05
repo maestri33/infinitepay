@@ -5,8 +5,8 @@ from app.api.config import router as config_router
 from app.api.health import router as health_router
 from app.api.webhooks import router as webhooks_router
 
-router = APIRouter()
-router.include_router(health_router)
-router.include_router(checkout_router, prefix="/checkout")
-router.include_router(config_router, prefix="/config")
-router.include_router(webhooks_router, prefix="/webhook")
+router = APIRouter(prefix="/api/v1")
+router.include_router(health_router, tags=["health"])
+router.include_router(checkout_router, prefix="/checkout", tags=["checkout"])
+router.include_router(config_router, prefix="/config", tags=["config"])
+router.include_router(webhooks_router, prefix="/webhook", tags=["webhook"])

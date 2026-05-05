@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.health import router as health_router
 from app.api.router import router as api_router
 from app.config import get_settings
 from app.db import init_db
@@ -34,7 +35,11 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     configure_logging()
-    app = FastAPI(lifespan=lifespan)
+    app = FastAPI(
+        title="infinitepay API",
+        version="1.0.0",
+        description="Checkout integration with InfinitePay.",
+    )
 
     app.add_middleware(
         CORSMiddleware,
@@ -48,6 +53,7 @@ def create_app() -> FastAPI:
     async def _domain_err(_req, exc: DomainError):
         return JSONResponse(status_code=exc.code, content={"detail": str(exc), **exc.extra})
 
+    app.include_router(health_router, tags=["health"])
     app.include_router(api_router)
     return app
 

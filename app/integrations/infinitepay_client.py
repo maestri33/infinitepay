@@ -17,7 +17,7 @@ def _client() -> httpx.Client:
 
 def create_checkout_link(payload: dict) -> dict:
     with _client() as c:
-        r = c.post("/invoices/public/checkout/links", json=payload)
+        r = c.post("/links", json=payload)
         try:
             data = r.json()
         except Exception:
@@ -41,7 +41,7 @@ def create_checkout_link(payload: dict) -> dict:
 def payment_check(*, handle: str, order_nsu: str, transaction_nsu: str, slug: str) -> dict:
     with _client() as c:
         r = c.post(
-            "/invoices/public/checkout/payment_check",
+            "/payment_check",
             json={
                 "handle": handle,
                 "order_nsu": order_nsu,

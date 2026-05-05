@@ -3,7 +3,6 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.config import get_settings
 from app.db import session_scope
 from app.exceptions import Conflict, IntegrationError, NotFound, ValidationError
 from app.integrations.infinitepay_client import (
@@ -86,7 +85,10 @@ def create_checkout(body: dict[str, Any]) -> dict:
         "items": items,
         "order_nsu": external_id,
         "redirect_url": redirect_url,
-        "webhook_url": f"{public_api_url}/webhook/?external_id={encrypt_external_id(external_id)}",
+        "webhook_url": (
+            f"{public_api_url}/api/v1/webhook/"
+            f"?external_id={encrypt_external_id(external_id)}"
+        ),
         "customer": customer,
     }
     if address:
@@ -286,7 +288,7 @@ def handle_infinitepay_webhook(external_id: str, payload: dict) -> dict:
 
     if backend_webhook:
         queue.enqueue(
-            url=get_settings().outbound_webhook_url,
+            url=backend_webhook,
             payload={
                 "external_id": external_id,
                 "paid": True,

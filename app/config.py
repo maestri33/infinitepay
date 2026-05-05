@@ -8,13 +8,12 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     db_path: Path = Path.home() / ".infinitepay" / "app.db"
-    infinitepay_base_url: str = "https://api.infinitepay.io"
+    infinitepay_base_url: str = "https://api.checkout.infinitepay.io"
     http_timeout: float = 15.0
     worker_poll_seconds: float = 5.0
     run_inline_worker: bool = True
 
     webhook_encryption_key: str = ""
-    outbound_webhook_url: str = "https://webhook.m33.live"
 
 
 @lru_cache

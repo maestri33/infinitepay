@@ -28,20 +28,6 @@ class CheckoutCreate(BaseModel):
     description: str | None = None
     quantity: int | None = None
     redirect_url: str | None = None
-    backend_webhook: str | None = None
     customer: CustomerIn | None = None
     address: AddressIn | None = None
     items: list[ItemIn] | None = None
-
-
-class CheckoutRead(BaseModel):
-    external_id: str
-    checkout_url: str | None = None
-    receipt_url: str | None = None
-    is_paid: bool
-    invoice_slug: str | None = None
-    transaction_nsu: str | None = None
-    capture_method: str | None = None
-    installments: int | None = None
-    created_at: str | None = None
-    updated_at: str | None = None
