@@ -152,6 +152,25 @@ def create_checkout(body: dict[str, Any]) -> dict:
             extra={"external_id": external_id},
         ) from None
 
+    backend_webhook = cfg.get("backend_webhook")
+    if backend_webhook:
+        customer_name = customer.get("name", "cliente") if customer else "cliente"
+        product = items[0].get("description", cfg.get("description", "produto"))
+        price = items[0].get("price", cfg.get("price", 0))
+        queue.enqueue(
+            url=backend_webhook,
+            payload={
+                "external_id": external_id,
+                "paid": False,
+                "checkout_url": checkout_url,
+                "customer_name": customer_name,
+                "product": product,
+                "amount": price,
+                "handle": handle,
+            },
+            external_id=external_id,
+        )
+
     return {"external_id": external_id, "checkout_url": checkout_url}
 
 

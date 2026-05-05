@@ -1,4 +1,5 @@
 import logging
+import threading
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -13,19 +14,6 @@ logger = logging.getLogger(__name__)
 BACKOFF_SECONDS = [60, 300, 1800, 7200, 43200, 86400]
 
 
-def enqueue(url: str, payload: dict, external_id: str | None = None) -> int:
-    with session_scope() as s:
-        job = OutboundJob(
-            url=url,
-            payload=payload,
-            external_id=external_id,
-            max_attempts=len(BACKOFF_SECONDS) + 1,
-        )
-        s.add(job)
-        s.flush()
-        return job.id
-
-
 def _now():
     return datetime.now(UTC)
 
@@ -38,6 +26,40 @@ def _deliver_payload(url: str, payload: dict) -> tuple[bool, str | None, int | N
         return False, f"HTTP {r.status_code}: {r.text[:300]}", r.status_code
     except Exception as e:
         return False, f"{type(e).__name__}: {e}", None
+
+
+def _deliver_job(job_id: int, url: str, payload: dict) -> None:
+    ok, err, _status = _deliver_payload(url, payload)
+    with session_scope() as s:
+        job = s.get(OutboundJob, job_id)
+        if job is None or job.delivered_at is not None:
+            return
+        job.attempts = 1
+        if ok:
+            job.delivered_at = _now()
+            job.last_error = None
+        else:
+            job.last_error = err
+            delay = BACKOFF_SECONDS[0]
+            job.next_attempt_at = _now() + timedelta(seconds=delay)
+
+
+def enqueue(url: str, payload: dict, external_id: str | None = None) -> int:
+    with session_scope() as s:
+        job = OutboundJob(
+            url=url,
+            payload=payload,
+            external_id=external_id,
+            max_attempts=len(BACKOFF_SECONDS) + 1,
+        )
+        s.add(job)
+        s.flush()
+        job_id = job.id
+
+    t = threading.Thread(target=_deliver_job, args=(job_id, url, payload), daemon=True)
+    t.start()
+
+    return job_id
 
 
 def process_due(limit: int = 20) -> int:
@@ -119,5 +141,3 @@ async def run_worker_loop(stop_event=None) -> None:
         except Exception:
             logger.exception("worker loop: process_due failed")
         await asyncio.sleep(get_settings().worker_poll_seconds)
-
-
