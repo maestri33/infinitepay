@@ -2,13 +2,25 @@ import asyncio
 
 from fastapi import APIRouter, Query, Request
 
+from app.schemas.checkout import CheckoutResponse
+from app.schemas.error import ErrorResponse
+from app.schemas.webhook import WebhookResponse
 from app.services import checkout_service
 from app.utils.crypto import decrypt_external_id
 
 router = APIRouter()
 
 
-@router.post("/")
+@router.post(
+    "/",
+    response_model=WebhookResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Payload invalido"},
+        404: {"model": ErrorResponse, "description": "Checkout desconhecido"},
+        422: {"model": ErrorResponse, "description": "order_nsu diverge ou campos faltando"},
+        502: {"model": ErrorResponse, "description": "Falha na validacao via InfinitePay"},
+    },
+)
 async def infinitepay_webhook(request: Request, external_id: str = Query(...)):
     """Server-to-server webhook da InfinitePay — atualiza status do checkout."""
     external_id = decrypt_external_id(external_id)
@@ -24,7 +36,10 @@ async def infinitepay_webhook(request: Request, external_id: str = Query(...)):
     )
 
 
-@router.get("/")
+@router.get(
+    "/",
+    response_model=CheckoutResponse,
+)
 async def checkout_status(order_nsu: str = Query(...)):
-    """Consulta status de um checkout (não altera nada)."""
+    """Consulta status de um checkout (nao altera nada)."""
     return checkout_service.get_checkout(order_nsu)

@@ -35,10 +35,44 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     configure_logging()
+
+    tags_metadata = [
+        {
+            "name": "health",
+            "description": "Health check e readiness probe.",
+        },
+        {
+            "name": "checkout",
+            "description": "Criacao, listagem e consulta de links de pagamento InfinitePay.",
+        },
+        {
+            "name": "config",
+            "description": "Configuracao global: handle, precos padrao, URLs de webhook.",
+        },
+        {
+            "name": "webhook",
+            "description": "Recebimento de webhooks server-to-server da InfinitePay.",
+        },
+        {
+            "name": "ai",
+            "description": (
+                "Perguntas em linguagem natural sobre checkouts e relatorios (DeepSeek AI)."
+            ),
+        },
+    ]
+
     app = FastAPI(
         title="infinitepay API",
         version="1.0.0",
         description="Checkout integration with InfinitePay.",
+        contact={
+            "name": "InfinitePay Team",
+        },
+        license_info={
+            "name": "MIT",
+        },
+        openapi_tags=tags_metadata,
+        summary="Integracao com InfinitePay — criacao de checkouts, webhooks e analise AI.",
     )
 
     app.add_middleware(
