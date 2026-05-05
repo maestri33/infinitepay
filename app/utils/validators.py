@@ -86,18 +86,19 @@ def _is_private_host(hostname: str) -> bool:
     return False
 
 
-def normalize_url(value: str, field: str) -> str:
+def normalize_url(value: str, field: str, allow_private: bool = False) -> str:
     v = (value or "").strip()
     if not v:
         raise ValidationError(f"{field} vazio")
     if not _URL_RE.match(v):
         raise ValidationError(f"{field} deve ser http(s): {value!r}")
     v = v.rstrip("/")
-    hostname = urlparse(v).hostname
-    if hostname and _is_private_host(hostname):
-        raise ValidationError(
-            f"{field}: URL com hostname/IP privado ou loopback nao permitido: {hostname!r}"
-        )
+    if not allow_private:
+        hostname = urlparse(v).hostname
+        if hostname and _is_private_host(hostname):
+            raise ValidationError(
+                f"{field}: URL com hostname/IP privado ou loopback nao permitido: {hostname!r}"
+            )
     return v
 
 

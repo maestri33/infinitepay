@@ -49,7 +49,9 @@ def patch_config(data: dict[str, Any]) -> dict:
         if "redirect_url" in data and data["redirect_url"] is not None:
             cfg.redirect_url = v.normalize_url(data["redirect_url"], "redirect_url")
         if "backend_webhook" in data and data["backend_webhook"] is not None:
-            cfg.backend_webhook = v.normalize_url(data["backend_webhook"], "backend_webhook")
+            cfg.backend_webhook = v.normalize_url(
+                data["backend_webhook"], "backend_webhook", allow_private=True
+            )
         if "public_api_url" in data and data["public_api_url"] is not None:
             cfg.public_api_url = v.normalize_url(data["public_api_url"], "public_api_url")
 
