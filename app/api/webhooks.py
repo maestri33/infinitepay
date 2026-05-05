@@ -9,7 +9,7 @@ router = APIRouter()
 
 
 @router.post("/")
-async def infinitepay_webhook(external_id: str = Query(...), request: Request):
+async def infinitepay_webhook(request: Request, external_id: str = Query(...)):
     external_id = decrypt_external_id(external_id)
     try:
         payload = await request.json()

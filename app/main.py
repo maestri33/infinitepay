@@ -5,13 +5,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.router import router as api_router
 from app.config import get_settings
 from app.db import init_db
 from app.exceptions import DomainError
 from app.utils.logging import configure_logging
 from app.workers import outbound_queue
-
-from app.api.router import router as api_router
 
 
 @asynccontextmanager

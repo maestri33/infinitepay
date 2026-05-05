@@ -22,8 +22,8 @@ def normalize_price(value) -> int:
         raise ValidationError("price (centavos) é obrigatório")
     try:
         v = int(value)
-    except (TypeError, ValueError):
-        raise ValidationError(f"price deve ser inteiro em centavos: {value!r}")
+    except (TypeError, ValueError) as e:
+        raise ValidationError(f"price deve ser inteiro em centavos: {value!r}") from e
     if v <= 0:
         raise ValidationError("price deve ser > 0 (centavos)")
     return v
@@ -34,8 +34,8 @@ def normalize_quantity(value) -> int:
         return 1
     try:
         v = int(value)
-    except (TypeError, ValueError):
-        raise ValidationError(f"quantity inválida: {value!r}")
+    except (TypeError, ValueError) as e:
+        raise ValidationError(f"quantity inválida: {value!r}") from e
     if v <= 0:
         raise ValidationError("quantity deve ser > 0")
     return v
@@ -73,7 +73,7 @@ def _is_private_host(hostname: str) -> bool:
         return True
     try:
         resolved = socket.getaddrinfo(host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-        for family, _type, _proto, _canon, addr in resolved:
+        for _family, _type, _proto, _canon, addr in resolved:
             ip = addr[0]
             try:
                 a = ipaddress.ip_address(ip)
@@ -105,7 +105,7 @@ def normalize_email(value: str) -> str:
     try:
         info = validate_email(value, check_deliverability=False)
     except EmailNotValidError as e:
-        raise ValidationError(f"email inválido: {e}")
+        raise ValidationError(f"email inválido: {e}") from e
     return info.normalized.lower()
 
 

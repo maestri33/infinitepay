@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from sqlalchemy import delete, select, update
@@ -27,7 +27,7 @@ def enqueue(url: str, payload: dict, external_id: str | None = None) -> int:
 
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _deliver_payload(url: str, payload: dict) -> tuple[bool, str | None, int | None]:

@@ -6,7 +6,6 @@ from app.db import session_scope
 from app.models.models import Config
 from app.utils import validators as v
 
-
 PUBLIC_FIELDS = (
     "handle",
     "price",

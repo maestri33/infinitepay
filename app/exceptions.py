@@ -5,12 +5,12 @@ class DomainError(Exception):
         self.extra = extra or {}
 
 
-class NotFound(DomainError):
+class NotFound(DomainError):  # noqa: N818
     def __init__(self, message: str, extra: dict | None = None):
         super().__init__(message, code=404, extra=extra)
 
 
-class Conflict(DomainError):
+class Conflict(DomainError):  # noqa: N818
     def __init__(self, message: str, extra: dict | None = None):
         super().__init__(message, code=409, extra=extra)
 

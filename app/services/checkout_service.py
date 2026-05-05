@@ -18,7 +18,8 @@ from app.utils.crypto import encrypt_external_id
 from app.workers import outbound_queue as queue
 
 
-def _log_event(sess, *, direction, kind, payload, response=None, status_code=None, external_id=None):
+def _log_event(sess, *, direction, kind, payload, response=None, status_code=None,
+               external_id=None):
     entry = WebhookLog(
         direction=direction,
         kind=kind,
@@ -63,9 +64,6 @@ def create_checkout(body: dict[str, Any]) -> dict:
     external_id = v.normalize_external_id(body.get("external_id", ""))
     handle = _resolve_field(body, cfg, "handle", v.normalize_handle)
     redirect_url = _resolve_field(body, cfg, "redirect_url", v.normalize_url, "redirect_url")
-    backend_webhook = _resolve_field(
-        body, cfg, "backend_webhook", v.normalize_url, "backend_webhook"
-    )
     public_api_url = cfg["public_api_url"]
 
     customer = v.normalize_customer(body.get("customer") or {})
@@ -78,7 +76,8 @@ def create_checkout(body: dict[str, Any]) -> dict:
         ).scalar_one_or_none()
         if existing is not None:
             raise Conflict(
-                f"external_id já existe: {external_id}. Faça um GET /checkout/{external_id}/ para conferir.",
+                f"external_id já existe: {external_id}. "
+                f"Faça um GET /checkout/{external_id}/ para conferir.",
                 extra={"external_id": external_id},
             )
 
@@ -106,7 +105,7 @@ def create_checkout(body: dict[str, Any]) -> dict:
                 status_code=e.status_code,
                 external_id=external_id,
             )
-        raise IntegrationError(f"Falha ao criar link na InfinitePay: {e}")
+        raise IntegrationError(f"Falha ao criar link na InfinitePay: {e}") from e
 
     checkout_url = response.get("url") or response.get("checkout_url")
     if not checkout_url:
@@ -144,9 +143,10 @@ def create_checkout(body: dict[str, Any]) -> dict:
             )
     except IntegrityError:
         raise Conflict(
-            f"external_id já existe: {external_id}. Faça um GET /checkout/{external_id}/ para conferir.",
+            f"external_id já existe: {external_id}. "
+            f"Faça um GET /checkout/{external_id}/ para conferir.",
             extra={"external_id": external_id},
-        )
+        ) from None
 
     return {"external_id": external_id, "checkout_url": checkout_url}
 
@@ -244,7 +244,7 @@ def handle_infinitepay_webhook(external_id: str, payload: dict) -> dict:
                 status_code=e.status_code,
                 external_id=external_id,
             )
-        raise IntegrationError(f"Falha ao validar pagamento na InfinitePay: {e}")
+        raise IntegrationError(f"Falha ao validar pagamento na InfinitePay: {e}") from e
 
     with session_scope() as s:
         _log_event(

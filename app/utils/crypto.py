@@ -16,4 +16,4 @@ def decrypt_external_id(token: str) -> str:
     try:
         return _fernet().decrypt(token.encode()).decode()
     except InvalidToken:
-        raise ValidationError("external_id inválido ou token expirado")
+        raise ValidationError("external_id inválido ou token expirado") from None
