@@ -3,6 +3,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from app.ai import monitor as ai_monitor
+from app.ai import receipt as ai_receipt
 from app.db import session_scope
 from app.exceptions import Conflict, IntegrationError, NotFound, ValidationError
 from app.integrations.infinitepay_client import (
@@ -17,8 +19,9 @@ from app.utils.crypto import encrypt_external_id
 from app.workers import outbound_queue as queue
 
 
-def _log_event(sess, *, direction, kind, payload, response=None, status_code=None,
-               external_id=None):
+def _log_event(
+    sess, *, direction, kind, payload, response=None, status_code=None, external_id=None
+):
     entry = WebhookLog(
         direction=direction,
         kind=kind,
@@ -86,8 +89,7 @@ def create_checkout(body: dict[str, Any]) -> dict:
         "order_nsu": external_id,
         "redirect_url": redirect_url,
         "webhook_url": (
-            f"{public_api_url}/api/v1/webhook/"
-            f"?external_id={encrypt_external_id(external_id)}"
+            f"{public_api_url}/api/v1/webhook/?external_id={encrypt_external_id(external_id)}"
         ),
         "customer": customer,
     }
@@ -287,18 +289,44 @@ def handle_infinitepay_webhook(external_id: str, payload: dict) -> dict:
         c.transaction_nsu = transaction_nsu
 
     if backend_webhook:
+        customer = c.request_payload.get("customer", {})
+        customer_name = customer.get("name", "cliente")
+        items = c.request_payload.get("items", [{}])
+        product = items[0].get("description", cfg.get("description", "produto"))
+        price = items[0].get("price", cfg.get("price", 0))
+        receipt_url = payload.get("receipt_url") or ""
+
+        ai_message = ai_receipt.generate_receipt_message(
+            customer_name=customer_name,
+            product=product,
+            price_cents=price,
+            receipt_url=receipt_url,
+        )
+
+        anomaly = ai_monitor.check_anomaly(external_id, payload)
+        if anomaly.get("alert"):
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "anomaly detected: %s — %s", external_id, anomaly.get("reason")
+            )
+
         queue.enqueue(
             url=backend_webhook,
             payload={
                 "external_id": external_id,
                 "paid": True,
-                "receipt_url": payload.get("receipt_url"),
+                "receipt_url": receipt_url,
                 "transaction_nsu": transaction_nsu,
                 "invoice_slug": invoice_slug,
                 "capture_method": payload.get("capture_method"),
                 "installments": payload.get("installments"),
                 "amount": payload.get("amount"),
                 "paid_amount": payload.get("paid_amount"),
+                "customer_name": customer_name,
+                "product": product,
+                "ai_message": ai_message,
+                "ai_anomaly": anomaly,
             },
             external_id=external_id,
         )

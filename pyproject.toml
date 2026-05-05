@@ -13,6 +13,7 @@ dependencies = [
     "email-validator>=2.1",
     "structlog>=24.4",
     "cryptography>=42",
+    "openai>=2.34.0",
 ]
 
 [dependency-groups]

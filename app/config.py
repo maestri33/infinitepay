@@ -15,6 +15,10 @@ class Settings(BaseSettings):
 
     webhook_encryption_key: str = ""
 
+    deepseek_api_key: str = ""
+    deepseek_model: str = "deepseek-v4-flash"
+    deepseek_ai_features_enabled: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:
