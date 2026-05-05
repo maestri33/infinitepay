@@ -288,13 +288,16 @@ def handle_infinitepay_webhook(external_id: str, payload: dict) -> dict:
         c.capture_method = payload.get("capture_method") or check.get("capture_method")
         c.transaction_nsu = transaction_nsu
 
-    if backend_webhook:
-        customer = c.request_payload.get("customer", {})
-        customer_name = customer.get("name", "cliente")
-        items = c.request_payload.get("items", [{}])
-        product = items[0].get("description", cfg.get("description", "produto"))
-        price = items[0].get("price", cfg.get("price", 0))
+        # extrair dados antes da sessao fechar (evita DetachedInstanceError)
+        _rp = c.request_payload or {}
+        _customer = _rp.get("customer", {})
+        customer_name = _customer.get("name", "cliente")
+        _items = _rp.get("items", [{}])
+        product = _items[0].get("description", cfg.get("description", "produto"))
+        price = _items[0].get("price", cfg.get("price", 0))
         receipt_url = payload.get("receipt_url") or ""
+
+    if backend_webhook:
 
         ai_message = ai_receipt.generate_receipt_message(
             customer_name=customer_name,
