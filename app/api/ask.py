@@ -8,5 +8,8 @@ router = APIRouter()
 
 @router.post("/")
 def ask_endpoint(body: AskRequest) -> dict:
-    """Pergunte sobre seus checkouts em linguagem natural (requer DeepSeek API key)."""
-    return run_ask(body.question)
+    """Pergunte sobre seus checkouts em linguagem natural.
+
+    Use `deep: true` para análises complexas (tendências, padrões, relatórios).
+    O modelo pro é usado automaticamente para perguntas analíticas."""
+    return run_ask(body.question, deep=body.deep)

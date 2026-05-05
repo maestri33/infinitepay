@@ -14,4 +14,10 @@ def ai_enabled() -> bool:
 
 
 def get_model() -> str:
+    """Modelo rápido/barato para tarefas simples (tool calling, classificacao, geracao)."""
     return get_settings().deepseek_model
+
+
+def get_pro_model() -> str:
+    """Modelo avancado para analise profunda, reports, raciocinio multi-step."""
+    return get_settings().deepseek_pro_model

@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-v4-flash"
+    deepseek_pro_model: str = "deepseek-v4-pro"
     deepseek_ai_features_enabled: bool = False
 
 

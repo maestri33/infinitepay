@@ -307,9 +307,16 @@ def handle_infinitepay_webhook(external_id: str, payload: dict) -> dict:
         if anomaly.get("alert"):
             import logging
 
-            logging.getLogger(__name__).warning(
+            logger = logging.getLogger(__name__)
+            logger.warning(
                 "anomaly detected: %s — %s", external_id, anomaly.get("reason")
             )
+            if anomaly.get("deep_analysis"):
+                logger.warning(
+                    "anomaly deep analysis: %s — %s",
+                    external_id,
+                    anomaly.get("deep_analysis"),
+                )
 
         queue.enqueue(
             url=backend_webhook,
